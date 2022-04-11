@@ -2,6 +2,8 @@ from typing import Collection, Optional, Sequence
 
 from torch import Tensor
 from torch.optim import Optimizer
+
+# noinspection PyProtectedMember,PyUnresolvedReferences
 from torch.optim.lr_scheduler import _LRScheduler
 
 

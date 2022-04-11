@@ -1,19 +1,22 @@
-from abc import abstractmethod
-from typing import Collection, Dict, Generic, List, Optional, Sequence
+from abc import ABC, abstractmethod
+from typing import Any, Collection, Dict, Generic, List, Optional, Sequence
 
 from kilroyshare import OfflineModule
 from kilroyshare.codec import Codec
 from kilroyshare.modules import V
 from torch import Tensor
 from torch.optim import Optimizer
+
+# noinspection PyProtectedMember,PyUnresolvedReferences
 from torch.optim.lr_scheduler import _LRScheduler
 
-from kilroytorch.losses.distribution import DistributionLoss, P
+from kilroytorch.adapters import DataAdapter
+from kilroytorch.losses.distribution import DistributionLoss, P, T
 from kilroytorch.models.distribution.base import A, B, DistributionModel
 from kilroytorch.modules.base import BaseModule
 
 
-class BaseOfflineModule(BaseModule, OfflineModule[V]):
+class BaseOfflineModule(BaseModule, OfflineModule[V], ABC, Generic[V]):
     def __init__(
         self,
         codec: Codec[Tensor, V],
@@ -32,42 +35,30 @@ class BaseOfflineModule(BaseModule, OfflineModule[V]):
         return self.fit_decoded(decoded)
 
 
-class SimpleOfflineModule(BaseOfflineModule[V], Generic[V, A, B, P]):
+class BasicOfflineModule(BaseOfflineModule[V], Generic[V, A, B]):
     def __init__(
         self,
         model: DistributionModel[A, B],
+        adapter: DataAdapter[Tensor, A, B, Any, P, T],
         codec: Codec[Tensor, V],
         optimizer: Optimizer,
-        loss: DistributionLoss[P],
+        loss: DistributionLoss[P, T],
         lr_schedulers: Sequence[_LRScheduler] = (),
     ) -> None:
         super().__init__(codec, (optimizer,), lr_schedulers)
         self.model = model
+        self.adapter = adapter
         self.loss = loss
-
-    @abstractmethod
-    def prepare_input_for_model(self, samples: List[Tensor]) -> A:
-        pass
-
-    @abstractmethod
-    def prepare_model_output_for_loss(
-        self, output: B, samples: List[Tensor]
-    ) -> P:
-        pass
-
-    @abstractmethod
-    def prepare_samples_for_loss(self, samples: List[Tensor]) -> Tensor:
-        pass
 
     @staticmethod
     def prepare_metrics(loss: Tensor) -> Dict[str, float]:
         return {"loss": loss.item()}
 
     def fit_decoded(self, samples: List[Tensor]) -> Optional[Dict[str, float]]:
-        output = self.model(self.prepare_input_for_model(samples))
+        output = self.model(self.adapter.decoded_to_model(samples))
         loss = self.loss(
-            self.prepare_model_output_for_loss(output, samples),
-            self.prepare_samples_for_loss(samples),
+            self.adapter.model_to_params(output),
+            self.adapter.decoded_to_target(samples),
         )
         self.report(loss)
         return self.prepare_metrics(loss)

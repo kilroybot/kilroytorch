@@ -1,22 +1,47 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Callable, List, Tuple
+from typing import Generic, List, Tuple, TypeVar
 
 import torch
 from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
 
+from kilroytorch.models.base import A, B
+from kilroytorch.models.distribution.base import DistributionModel
+from kilroytorch.models.distribution.plain import A as PA, B as PB
+from kilroytorch.models.distribution.sequential import A as SA, B as SB
 from kilroytorch.samplers.base import Sampler
-from kilroytorch.samplers.multiclass import ProportionalMulticlassSampler
 from kilroytorch.utils import (
     pack_list,
     pack_padded,
     unpack_to_padded,
 )
 
-Predictor = Callable[[PackedSequence], PackedSequence]
+G = TypeVar("G")
+PG = TypeVar("PG", bound=Tensor)
+SG = TypeVar("SG", bound=PackedSequence)
 
 
-class Generator:
+class Generator(ABC, Generic[A, B, G]):
+    @abstractmethod
+    def generate(
+        self, model: DistributionModel[A, B], n: int = 1
+    ) -> Tuple[G, Tensor]:
+        pass
+
+
+class PlainGenerator(Generator[PA, PB, PG]):
+    def __init__(self, sampler: Sampler[B]) -> None:
+        super().__init__()
+        self.sampler = sampler
+
+    def generate(
+        self, model: DistributionModel[PA, PB], n: int = 1
+    ) -> Tuple[PG, Tensor]:
+        return self.sampler.sample(model(torch.ones(1, 1)), n)
+
+
+class SequentialGenerator(Generator[SA, SB, SG]):
     @dataclass
     class State:
         current_sequences: Tensor
@@ -27,8 +52,8 @@ class Generator:
 
     def __init__(
         self,
+        sampler: Sampler[SB],
         max_length: int,
-        sampler: Sampler[Tensor] = ProportionalMulticlassSampler(),
         start_value: float = 0,
         end_value: float = 1,
     ):
@@ -50,20 +75,23 @@ class Generator:
         )
 
     @staticmethod
-    def predict(predictor: Predictor, current_sequences: Tensor) -> Tensor:
+    def predict(
+        model: DistributionModel[SA, SB], current_sequences: Tensor
+    ) -> Tensor:
         predictions, _ = unpack_to_padded(
-            predictor(pack_padded(current_sequences))
+            model(pack_padded(current_sequences))
         )
         return predictions[:, -1]
 
     def pick(self, batched_logprobs: Tensor) -> Tuple[Tensor, Tensor]:
         samples, sample_logprobs = [], []
         for logprobs in batched_logprobs:
-            sample, logprob = self.sampler.sample(logprobs)
+            sample, logprob = self.sampler.sample(logprobs.unsqueeze(0))
             samples.append(sample[0])
             sample_logprobs.append(logprob[0])
         return torch.stack(samples), torch.stack(sample_logprobs)
 
+    # noinspection PyShadowingBuiltins
     def get_finished_mask(self, next: Tensor) -> Tensor:
         return next.flatten() == self.end_value
 
@@ -105,11 +133,11 @@ class Generator:
         return sequences, logprobs
 
     def generate(
-        self, predictor: Predictor, n: int = 1
-    ) -> Tuple[PackedSequence, Tensor]:
+        self, model: DistributionModel[SA, SB], n: int = 1
+    ) -> Tuple[SG, Tensor]:
         state = self.initial_state(n)
         while not self.should_stop(state):
-            logprobs = self.predict(predictor, state.current_sequences)
+            logprobs = self.predict(model, state.current_sequences)
             next_values, next_logprobs = self.pick(logprobs)
             state = self.update_state(state, next_values, next_logprobs)
         sequences, logprobs = self.complete(state)

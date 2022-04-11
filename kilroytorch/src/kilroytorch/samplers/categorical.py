@@ -8,10 +8,10 @@ from kilroytorch.samplers.base import Sampler
 from kilroytorch.utils import ShapeValidator
 
 
-class MulticlassSampler(Sampler[Tensor], ABC):
+class CategoricalSampler(Sampler[Tensor], ABC):
     def __init__(self) -> None:
         super().__init__()
-        self.params_validator = ShapeValidator((None,))
+        self.params_validator = ShapeValidator((None, None))
         self.samples_validator = ShapeValidator((None, 1))
 
     def validate_params(self, params: Tensor) -> None:
@@ -21,11 +21,11 @@ class MulticlassSampler(Sampler[Tensor], ABC):
         self.samples_validator.validate(samples)
 
 
-class ProportionalMulticlassSampler(MulticlassSampler):
+class ProportionalCategoricalSampler(CategoricalSampler):
     def sample_internal(
         self, params: Tensor, n: int = 1
     ) -> Tuple[Tensor, Tensor]:
-        logprobs = params
+        logprobs = params[0]
         dist = Categorical(logprobs.exp())
         samples = dist.sample((n, 1))
         return samples, dist.log_prob(samples)
