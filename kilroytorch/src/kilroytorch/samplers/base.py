@@ -5,7 +5,7 @@ from torch import Tensor
 
 from kilroytorch.utils import ShapeValidator
 
-P = TypeVar("P")
+P = TypeVar("P", bound=Tensor)
 
 
 class Sampler(ABC, Generic[P]):

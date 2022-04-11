@@ -1,9 +1,9 @@
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from typing import (
+    Any,
     Collection,
     Dict,
     Generic,
-    Iterable,
     Iterator,
     List,
     MutableMapping,
@@ -17,9 +17,13 @@ from kilroyshare import OnlineModule
 from kilroyshare.codec import Codec
 from kilroyshare.modules import V
 from torch import Tensor
+
+# noinspection PyProtectedMember,PyUnresolvedReferences
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.optimizer import Optimizer
 
+from kilroytorch.adapters import DataAdapter, G
+from kilroytorch.generators import Generator
 from kilroytorch.losses.blackbox import BlackboxLoss, ReinforceLoss
 from kilroytorch.losses.distance import DistanceLoss, MeanSquaredErrorLoss
 from kilroytorch.models.distribution.base import A, B, DistributionModel
@@ -28,15 +32,17 @@ from kilroytorch.modules.base import BaseModule
 from kilroytorch.utils import generate_id
 
 
-class BaseOnlineModule(BaseModule, OnlineModule[str, V]):
+class BaseOnlineModule(BaseModule, OnlineModule[str, V], ABC, Generic[V]):
     def __init__(
         self,
+        adapter: DataAdapter[Tensor, A, B, Any, Any, Any],
         codec: Codec[Tensor, V],
         optimizers: Collection[Optimizer],
         lr_schedulers: Sequence[_LRScheduler] = (),
         cache: Optional[MutableMapping[str, Tuple[Tensor, Tensor]]] = None,
     ) -> None:
         super().__init__(optimizers, lr_schedulers)
+        self.adapter = adapter
         self.codec = codec
         self.cache = cache or {}
 
@@ -52,12 +58,6 @@ class BaseOnlineModule(BaseModule, OnlineModule[str, V]):
             yield key, value
 
     @abstractmethod
-    def order(
-        self, zipped: Iterable[Tuple[Tensor, Tensor, Tensor]]
-    ) -> Iterable[Tuple[Tensor, Tensor, Tensor]]:
-        pass
-
-    @abstractmethod
     def fit_internal(
         self, samples: List[Tensor], logprobs: Tensor, scores: Tensor
     ) -> Optional[Dict[str, float]]:
@@ -70,7 +70,7 @@ class BaseOnlineModule(BaseModule, OnlineModule[str, V]):
             samples.append(sample)
             logprobs.append(logprob)
         scores = torch.tensor(list(scores.values())).float().view(-1, 1)
-        ordered = list(self.order(zip(samples, logprobs, scores)))
+        ordered = list(self.adapter.order(zip(samples, logprobs, scores)))
         return self.fit_internal(
             [sample for sample, _, _ in ordered],
             torch.vstack([logprob for _, logprob, _ in ordered]),
@@ -78,27 +78,26 @@ class BaseOnlineModule(BaseModule, OnlineModule[str, V]):
         )
 
 
-class SimpleOnlineModule(BaseOnlineModule[V], Generic[V, A, B]):
+class BasicOnlineModule(BaseOnlineModule[V], Generic[V, A, B, G]):
     def __init__(
         self,
         model: DistributionModel[A, B],
+        generator: Generator[A, B, G],
+        adapter: DataAdapter[Tensor, A, B, G, Any, Any],
         codec: Codec[Tensor, V],
         optimizer: Optimizer,
         loss: BlackboxLoss = ReinforceLoss(),
         lr_schedulers: Sequence[_LRScheduler] = (),
-        cache: Optional[MutableMapping[str, Tuple[B, Tensor]]] = None,
+        cache: Optional[MutableMapping[str, Tuple[Tensor, Tensor]]] = None,
     ) -> None:
-        super().__init__(codec, (optimizer,), lr_schedulers, cache)
+        super().__init__(adapter, codec, (optimizer,), lr_schedulers, cache)
         self.model = model
+        self.generator = generator
         self.loss = loss
 
-    @abstractmethod
-    def prepare_output_for_codec(self, x: B) -> Iterable[Tensor]:
-        pass
-
     def generate_samples(self, n: int) -> Iterator[Tuple[Tensor, Tensor]]:
-        samples, logprobs = self.model.sample(n)
-        return zip(self.prepare_output_for_codec(samples), logprobs)
+        samples, logprobs = self.generator.generate(self.model, n)
+        return zip(self.adapter.iterate_generated(samples), logprobs)
 
     @staticmethod
     def prepare_metrics(loss: Tensor) -> Dict[str, float]:
@@ -112,11 +111,13 @@ class SimpleOnlineModule(BaseOnlineModule[V], Generic[V, A, B]):
         return self.prepare_metrics(loss)
 
 
-class ActorCriticOnlineModule(BaseOnlineModule[V], Generic[V, A, B]):
+class ActorCriticOnlineModule(BaseOnlineModule[V], Generic[V, A, B, G]):
     def __init__(
         self,
         actor: DistributionModel[A, B],
         critic: RewardModel[B],
+        generator: Generator[A, B, G],
+        adapter: DataAdapter[Tensor, A, B, G, Any, Any],
         codec: Codec[Tensor, V],
         optimizers: Collection[Optimizer],
         actor_loss: BlackboxLoss = ReinforceLoss(),
@@ -125,24 +126,17 @@ class ActorCriticOnlineModule(BaseOnlineModule[V], Generic[V, A, B]):
         cache: Optional[MutableMapping[str, Tuple[B, Tensor]]] = None,
         actor_iterations: int = 100,
     ) -> None:
-        super().__init__(codec, optimizers, lr_schedulers, cache)
+        super().__init__(adapter, codec, optimizers, lr_schedulers, cache)
         self.actor = actor
         self.critic = critic
+        self.generator = generator
         self.actor_loss = actor_loss
         self.critic_loss = critic_loss
         self.actor_iterations = actor_iterations
 
-    @abstractmethod
-    def prepare_output_for_codec(self, x: B) -> Iterable[Tensor]:
-        pass
-
     def generate_samples(self, n: int) -> Iterator[Tuple[Tensor, Tensor]]:
-        samples, logprobs = self.actor.sample(n)
-        return zip(self.prepare_output_for_codec(samples), logprobs)
-
-    @abstractmethod
-    def prepare_samples_for_critic(self, samples: List[Tensor]) -> B:
-        pass
+        samples, logprobs = self.generator.generate(self.actor, n)
+        return zip(self.adapter.iterate_generated(samples), logprobs)
 
     @staticmethod
     def prepare_metrics(
@@ -157,11 +151,13 @@ class ActorCriticOnlineModule(BaseOnlineModule[V], Generic[V, A, B]):
         self, samples: List[Tensor], logprobs: Tensor, scores: Tensor
     ) -> Optional[Dict[str, float]]:
         n_samples = len(samples)
-        critic_scores = self.critic(self.prepare_samples_for_critic(samples))
+        critic_scores = self.critic(
+            self.adapter.iterable_to_generated(samples)
+        )
         loss = self.critic_loss(scores, critic_scores)
         self.report(loss, "critic")
         for _ in range(self.actor_iterations):
-            samples, logprobs = self.actor.sample(n_samples)
+            samples, logprobs = self.generator.generate(self.actor, n_samples)
             scores = self.critic(samples)
             loss = self.actor_loss(logprobs, scores)
             self.report(loss, "actor")

@@ -1,9 +1,9 @@
 import uuid
 import warnings
-from typing import List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import torch
-from torch import Tensor
+from torch import Tensor, nn
 from torch.nn.utils.rnn import (
     PackedSequence,
     pack_padded_sequence,
@@ -65,25 +65,51 @@ def generate_id() -> str:
     return uuid.uuid4().hex
 
 
-def pad(x: List[Tensor], pad_value: float = 0) -> Tuple[Tensor, List[int]]:
+def build_nonlinear_layers(
+    sizes: Sequence[int], activation: nn.Module = nn.ReLU
+) -> List[nn.Module]:
+    layers = []
+    for i in range(len(sizes) - 1):
+        layers.append(nn.Linear(sizes[i], sizes[i + 1]))
+        layers.append(activation())
+    return layers
+
+
+def sort(samples: Iterable[Tensor]) -> List[Tensor]:
+    return sorted(samples, key=lambda s: len(s), reverse=True)
+
+
+def slice_samples(samples: Iterable[Tensor], s: slice) -> List[Tensor]:
+    return [sequence[s] for sequence in samples]
+
+
+def truncate_first(samples: Iterable[Tensor]) -> List[Tensor]:
+    return slice_samples(samples, slice(1, None))
+
+
+def truncate_last(samples: Iterable[Tensor]) -> List[Tensor]:
+    return slice_samples(samples, slice(-1))
+
+
+def pad(x: Iterable[Tensor], pad_value: float = 0) -> Tuple[Tensor, List[int]]:
     return (
-        pad_sequence(x, batch_first=True, padding_value=pad_value),
+        pad_sequence(list(x), batch_first=True, padding_value=pad_value),
         [len(s) for s in x],
     )
 
 
-def unpad(x: Tensor, lengths: List[int]) -> List[Tensor]:
+def unpad(x: Tensor, lengths: Iterable[int]) -> List[Tensor]:
     return [s[:length] for s, length in zip(x, lengths)]
 
 
 def pack_padded(
-    x: Tensor, lengths: Optional[List[int]] = None
+    x: Tensor, lengths: Optional[Iterable[int]] = None
 ) -> PackedSequence:
     lengths = lengths or torch.tensor([x.shape[1]] * len(x))
     return pack_padded_sequence(x, lengths, batch_first=True)
 
 
-def pack_list(x: List[Tensor]) -> PackedSequence:
+def pack_list(x: Iterable[Tensor]) -> PackedSequence:
     x_sorted = sorted(x, key=lambda s: len(s), reverse=True)
     return pack_padded(*pad(x_sorted))
 
