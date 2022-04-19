@@ -10,7 +10,7 @@ from kilroytorch.models.base import A, B
 from kilroytorch.models.distribution.base import DistributionModel
 from kilroytorch.models.distribution.plain import A as PA, B as PB
 from kilroytorch.models.distribution.sequential import A as SA, B as SB
-from kilroytorch.samplers.base import Sampler
+from kilroytorch.samplers.base import P, Sampler
 from kilroytorch.utils import (
     pack_list,
     pack_padded,
@@ -30,7 +30,7 @@ class Generator(ABC, Generic[A, B, G]):
         pass
 
 
-class PlainGenerator(Generator[PA, PB, PG]):
+class PlainGenerator(Generator[PA, PB, PG], Generic[PA, PB, PG]):
     def __init__(self, sampler: Sampler[B]) -> None:
         super().__init__()
         self.sampler = sampler
@@ -38,10 +38,11 @@ class PlainGenerator(Generator[PA, PB, PG]):
     def generate(
         self, model: DistributionModel[PA, PB], n: int = 1
     ) -> Tuple[PG, Tensor]:
-        return self.sampler.sample(model(torch.ones(1, 1)), n)
+        samples, logprobs = self.sampler.sample(model(torch.ones(1, 1)), n)
+        return samples[0], logprobs[0]
 
 
-class SequentialGenerator(Generator[SA, SB, SG]):
+class SequentialGenerator(Generator[SA, SB, SG], Generic[SA, SB, P, SG]):
     @dataclass
     class State:
         current_sequences: Tensor
@@ -52,7 +53,7 @@ class SequentialGenerator(Generator[SA, SB, SG]):
 
     def __init__(
         self,
-        sampler: Sampler[SB],
+        sampler: Sampler[P],
         max_length: int,
         start_value: float = 0,
         end_value: float = 1,
@@ -84,12 +85,7 @@ class SequentialGenerator(Generator[SA, SB, SG]):
         return predictions[:, -1]
 
     def pick(self, batched_logprobs: Tensor) -> Tuple[Tensor, Tensor]:
-        samples, sample_logprobs = [], []
-        for logprobs in batched_logprobs:
-            sample, logprob = self.sampler.sample(logprobs.unsqueeze(0))
-            samples.append(sample[0])
-            sample_logprobs.append(logprob[0])
-        return torch.stack(samples), torch.stack(sample_logprobs)
+        return self.sampler.sample(batched_logprobs)
 
     # noinspection PyShadowingBuiltins
     def get_finished_mask(self, next: Tensor) -> Tensor:
