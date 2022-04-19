@@ -12,20 +12,18 @@ class CategoricalSampler(Sampler[Tensor], ABC):
     def __init__(self) -> None:
         super().__init__()
         self.params_validator = ShapeValidator((None, None))
-        self.samples_validator = ShapeValidator((None, 1))
 
     def validate_params(self, params: Tensor) -> None:
         self.params_validator.validate(params)
 
-    def validate_samples(self, samples: Tensor) -> None:
-        self.samples_validator.validate(samples)
-
 
 class ProportionalCategoricalSampler(CategoricalSampler):
     def sample_internal(
-        self, params: Tensor, n: int = 1
+        self, logprobs: Tensor, n: int = 1
     ) -> Tuple[Tensor, Tensor]:
-        logprobs = params[0]
-        dist = Categorical(logprobs.exp())
+        dist = Categorical(logprobs.exp(), validate_args=False)
         samples = dist.sample((n, 1))
-        return samples, dist.log_prob(samples)
+        return (
+            samples.permute(2, 0, 1),
+            dist.log_prob(samples).permute(2, 0, 1),
+        )
