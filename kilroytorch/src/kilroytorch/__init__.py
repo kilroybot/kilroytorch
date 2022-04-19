@@ -3,6 +3,7 @@ from pathlib import Path, PurePath
 from typing import ContextManager, Tuple, Union
 
 from kilroytorch import resources
+from kilroytorch.config import config
 
 
 def extract_resource_path(
