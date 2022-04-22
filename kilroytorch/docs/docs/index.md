@@ -1,12 +1,8 @@
 # kilroytorch
 
-kilroy pytorch modules🔥
+kilroy pytorch modules 🔥
 
-It lets you easily accomplish the following things:
-
-- [x] **nothing**
-
-But at least it shows some opinionated best practices about python project structure.
+TODO
 
 ## Installing
 
@@ -15,5 +11,3 @@ Using `pip`:
 ```sh
 pip install kilroytorch
 ```
-
-

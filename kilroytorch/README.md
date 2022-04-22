@@ -2,14 +2,14 @@
 
 <div align="center">
 
-[![Running tests](https://github.com/kilroybot/kilroytorch/actions/workflows/test.yml/badge.svg)](https://github.com/kilroybot/kilroytorch/actions/workflows/test.yml)
-[![Deploying docs](https://github.com/kilroybot/kilroytorch/actions/workflows/docs.yml/badge.svg)](https://github.com/kilroybot/kilroytorch/actions/workflows/docs.yml)
+kilroy pytorch modules 🔥
+
+[![Tests](https://github.com/kilroybot/kilroytorch/actions/workflows/test-multiplatform.yml/badge.svg)](https://github.com/kilroybot/kilroytorch/actions/workflows/test-multiplatform.yml)
+[![Docs](https://github.com/kilroybot/kilroytorch/actions/workflows/docs.yml/badge.svg)](https://github.com/kilroybot/kilroytorch/actions/workflows/docs.yml)
 
 </div>
 
 ---
-
-kilroy pytorch modules🔥
 
 TODO
 
