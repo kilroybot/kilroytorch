@@ -105,7 +105,9 @@ def unpad(x: Tensor, lengths: Iterable[int]) -> List[Tensor]:
 def pack_padded(
     x: Tensor, lengths: Optional[Iterable[int]] = None
 ) -> PackedSequence:
-    lengths = lengths or torch.tensor([x.shape[1]] * len(x))
+    lengths = (
+        lengths if lengths is not None else torch.tensor([x.shape[1]] * len(x))
+    )
     return pack_padded_sequence(x, lengths, batch_first=True)
 
 
