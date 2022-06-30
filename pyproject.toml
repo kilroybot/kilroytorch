@@ -3,7 +3,7 @@
 
 [tool.poetry]
 name = "kilroytorch"
-version = "0.3.1"
+version = "0.3.3"
 description = "kilroy pytorch modules 🔥"
 readme = "kilroytorch/README.md"
 authors = ["kilroy <kilroymail@pm.me>"]
