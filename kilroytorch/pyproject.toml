@@ -11,7 +11,7 @@ documentation = "https://kilroybot.github.io/kilroytorch"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-kilroyshare = "~0.6.0"
+kilroyshare = "~0.7.0"
 torch = "^1.11"
 numpy = "^1.22"
 
