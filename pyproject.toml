@@ -3,7 +3,7 @@
 
 [tool.poetry]
 name = "kilroytorch"
-version = "0.3.3"
+version = "0.3.4"
 description = "kilroy pytorch modules 🔥"
 readme = "kilroytorch/README.md"
 authors = ["kilroy <kilroymail@pm.me>"]
@@ -15,7 +15,7 @@ packages = [{ include = "kilroytorch", from = "kilroytorch/src" }]
 
 [tool.poetry.dependencies]
 python = "^3.9"
-kilroyshare = "~0.7.0"
+kilroyshare = "~0.8.0"
 torch = "^1.11"
 numpy = "^1.22"
 

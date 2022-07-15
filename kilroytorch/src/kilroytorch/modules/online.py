@@ -115,7 +115,7 @@ class ActorCriticOnlineModule(BaseOnlineModule[V], Generic[V, A, B, G]):
     def __init__(
         self,
         actor: DistributionModel[A, B],
-        critic: RewardModel[B],
+        critic: RewardModel[G],
         generator: Generator[A, B, G],
         adapter: DataAdapter[Tensor, A, B, G, Any, Any],
         codec: Codec[Tensor, V],
@@ -123,6 +123,7 @@ class ActorCriticOnlineModule(BaseOnlineModule[V], Generic[V, A, B, G]):
         actor_loss: BlackboxLoss = ReinforceLoss(),
         critic_loss: DistanceLoss = MeanSquaredErrorLoss(),
         lr_schedulers: Sequence[_LRScheduler] = (),
+        critic_codec: Optional[Codec[Tensor, V]] = None,
         cache: Optional[MutableMapping[str, Tuple[B, Tensor]]] = None,
         actor_iterations: int = 100,
     ) -> None:
@@ -132,6 +133,7 @@ class ActorCriticOnlineModule(BaseOnlineModule[V], Generic[V, A, B, G]):
         self.generator = generator
         self.actor_loss = actor_loss
         self.critic_loss = critic_loss
+        self.critic_codec = critic_codec
         self.actor_iterations = actor_iterations
 
     def generate_samples(self, n: int) -> Iterator[Tuple[Tensor, Tensor]]:
@@ -147,17 +149,25 @@ class ActorCriticOnlineModule(BaseOnlineModule[V], Generic[V, A, B, G]):
             "actor_loss": actor_loss.item(),
         }
 
+    def recode(self, samples: G) -> G:
+        if self.critic_codec is None:
+            return samples
+        samples = self.adapter.generated_to_codec(samples)
+        samples = [self.codec.encode(sample) for sample in samples]
+        samples = [self.critic_codec.decode(sample) for sample in samples]
+        return self.adapter.iterable_to_generated(samples)
+
     def fit_internal(
         self, samples: List[Tensor], logprobs: Tensor, scores: Tensor
     ) -> Optional[Dict[str, float]]:
         n_samples = len(samples)
-        critic_scores = self.critic(
-            self.adapter.iterable_to_generated(samples)
-        )
+        samples = self.recode(self.adapter.iterable_to_generated(samples))
+        critic_scores = self.critic(samples)
         loss = self.critic_loss(scores, critic_scores)
         self.report(loss, "critic")
         for _ in range(self.actor_iterations):
             samples, logprobs = self.generator.generate(self.actor, n_samples)
+            samples = self.recode(samples)
             scores = self.critic(samples)
             loss = self.actor_loss(logprobs, scores)
             self.report(loss, "actor")
